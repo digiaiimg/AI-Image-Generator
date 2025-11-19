@@ -1,0 +1,5 @@
+{
+  "name": "Digi AI Image Generator",
+  "description": "A high-fidelity AI image generation web application powered by Gemini, featuring prompt enhancement and image-to-image capabilities.",
+  "requestFramePermissions": []
+}
