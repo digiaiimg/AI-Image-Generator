@@ -186,3 +186,55 @@
     </script>
 </body>
 </html>
+<!-- IMPORTANT NOTE:
+Without exposing your API key in frontend, you MUST use a backend proxy.
+This file is updated to remove API key from user side and call your backend instead.
+Replace YOUR_BACKEND_URL with your own server.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DIGI AI Studio - No API Key Frontend</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white p-4">
+  <h1 class="text-3xl font-bold mb-4">DIGI AI Studio (API Key Hidden)</h1>
+
+  <textarea id="prompt" class="w-full p-3 bg-gray-800 rounded-lg" placeholder="Describe your image..."></textarea>
+
+  <button id="generateBtn" class="mt-4 bg-indigo-600 px-4 py-2 rounded-lg">Generate</button>
+
+  <div id="resultBox" class="mt-6 hidden">
+    <img id="resultImg" class="max-w-full rounded-lg" />
+  </div>
+
+  <script>
+    const BACKEND_URL = "YOUR_BACKEND_URL"; // <-- change this to your server
+
+    document.getElementById("generateBtn").onclick = async () => {
+      const prompt = document.getElementById("prompt").value.trim();
+      if (!prompt) return alert("Enter prompt");
+
+      try {
+        const res = await fetch(BACKEND_URL + "/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+
+        const data = await res.json();
+        if (!data.image) throw new Error("No image returned");
+
+        document.getElementById("resultImg").src = data.image;
+        document.getElementById("resultBox").classList.remove("hidden");
+
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    };
+  </script>
+</body>
+</html>
