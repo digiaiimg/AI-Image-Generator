@@ -1,0 +1,545 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  Moon, 
+  Sun, 
+  Image as ImageIcon, 
+  Download, 
+  Sparkles, 
+  Upload, 
+  X, 
+  Menu, 
+  Wand2,
+  Share2,
+  Cpu,
+  MessageSquare,
+  Send
+} from 'lucide-react';
+import { 
+  generateImageGemini, 
+  editImageGemini, 
+  sendChatMessageGemini,
+  ChatMessage // Import the ChatMessage interface
+} from './services/geminiService';
+
+export default function App() {
+  // Global State
+  const [darkMode, setDarkMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null); // Renamed for clarity
+
+  // Image Generation State
+  const [prompt, setPrompt] = useState('');
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null); // base64 data URL
+  const [activeTab, setActiveTab] = useState<'generate' | 'edit'>('generate'); // 'generate' or 'edit'
+
+  // Chat/Problem-Solving State
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // Scroll chat to the latest message
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatHistory, isChatOpen]);
+
+
+  // --- API Functions ---
+
+  const generateImage = useCallback(async () => {
+    if (!prompt) return;
+    setIsLoading(true);
+    setError(null);
+    setGeneratedImage(null);
+
+    try {
+      // The service function now handles the prompt suffix and API key checks internally
+      const imageUrl = await generateImageGemini(prompt, aspectRatio);
+      
+      if (imageUrl) {
+        setGeneratedImage(imageUrl);
+      } else {
+        throw new Error("No image data received from API.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to generate image. Please try a different prompt or check your API key.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [prompt, aspectRatio]); // Depend on prompt and aspectRatio
+
+  const editImage = useCallback(async () => {
+    if (!prompt || !uploadedImage) {
+      setError("Please provide both an image and a prompt for editing.");
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setGeneratedImage(null);
+
+    try {
+      // Extract base64 data from the uploaded data URL
+      const base64Data = uploadedImage.split(',')[1];
+      const mimeType = uploadedImage.split(';')[0].split(':')[1]; // Extract mime type from data URL
+
+      const imageUrl = await editImageGemini(prompt, base64Data, mimeType);
+      
+      if (imageUrl) {
+        setGeneratedImage(imageUrl);
+      } else {
+        throw new Error("The model could not generate a visual edit. Try describing the desired output more clearly.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to edit image. Ensure the prompt is clear or check your API key.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [prompt, uploadedImage]); // Depend on prompt and uploadedImage
+
+  const handleChatSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMessage = chatInput;
+    setChatInput('');
+    setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
+    setIsChatLoading(true);
+
+    try {
+      // The sendChatMessageGemini needs the current full chat history for context
+      const modelResponseText = await sendChatMessageGemini(chatHistory, userMessage);
+      
+      if (modelResponseText) {
+        setChatHistory(prev => [...prev, { role: 'model', text: modelResponseText }]);
+      } else {
+        throw new Error("Sorry, I couldn't generate a response.");
+      }
+    } catch (err: any) {
+      console.error("Chat Error:", err);
+      setChatHistory(prev => [...prev, { role: 'model', text: err.message || "I apologize, but I encountered an error while processing your request. Please try again." }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  }, [chatInput, isChatLoading, chatHistory]); // chatHistory is a necessary dependency here for context propagation
+
+
+  // --- UI/Helper Functions ---
+
+  const handleAction = () => {
+    if (activeTab === 'edit' && uploadedImage) {
+      editImage();
+    } else {
+      generateImage();
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedImage(reader.result as string);
+        setActiveTab('edit'); // Auto switch to edit mode
+        setError(null); // Clear previous errors
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const downloadImage = () => {
+    if (generatedImage) {
+      const link = document.createElement('a');
+      link.href = generatedImage;
+      link.download = `digi-ai-studio-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const clearUpload = () => {
+    setUploadedImage(null);
+    setActiveTab('generate');
+    setPrompt(''); // Clear prompt when clearing upload
+    setError(null); // Clear errors
+  };
+
+  const toggleChat = () => {
+    setIsChatOpen(prev => !prev);
+    if (!isChatOpen && sidebarOpen) {
+        setSidebarOpen(false); // Close image settings when opening chat
+    }
+  };
+
+  // Theme Toggler
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  return (
+    <div className={`min-h-screen transition-colors duration-500 font-sans ${darkMode ? 'bg-[#0f1014] text-gray-100' : 'bg-white text-gray-900'}`}>
+      
+      {/* Navigation Bar */}
+      <nav className={`fixed top-0 w-full z-50 border-b backdrop-blur-md transition-colors duration-300 ${darkMode ? 'border-gray-800 bg-[#0f1014]/80' : 'border-gray-200 bg-white/80'}`}>
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.location.reload()}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold">
+              <Sparkles size={20} />
+            </div>
+            <span className="text-xl font-bold tracking-tight">Digi AI <span className="text-blue-600">Studio</span></span>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setDarkMode(!darkMode)}
+              className={`p-2 rounded-full transition-all duration-300 ${darkMode ? 'hover:bg-gray-800 text-yellow-400' : 'hover:bg-gray-100 text-gray-600'}`}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <button 
+              className="md:hidden p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+              onClick={() => { setSidebarOpen(!sidebarOpen); if (!sidebarOpen && isChatOpen) setIsChatOpen(false); }}
+            >
+              <Menu size={20} />
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Layout */}
+      <div className="pt-16 flex h-screen overflow-hidden">
+        
+        {/* Sidebar (Image Settings & Tools) */}
+        <aside className={`
+          absolute md:relative z-40 w-80 h-full transform transition-transform duration-300 ease-in-out border-r
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${darkMode ? 'bg-[#0f1014] border-gray-800' : 'bg-white border-gray-200'}
+        `}>
+          <div className="p-6 flex flex-col h-full gap-8 overflow-y-auto">
+            
+            {/* Branding Section */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Technology</h2>
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+                <Cpu size={18} className="text-blue-600" />
+                <span className="text-sm font-medium">Dream It Get It Tech</span>
+              </div>
+            </div>
+
+            {/* Mode Switcher */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Mode</h2>
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-gray-100 dark:bg-gray-800/50">
+                <button 
+                  onClick={() => { setActiveTab('generate'); setPrompt(''); setError(null); }}
+                  className={`flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'generate' ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'}`}
+                >
+                  <Wand2 size={16} /> Generate
+                </button>
+                <button 
+                  onClick={() => { setActiveTab('edit'); setPrompt(''); setError(null); }}
+                  className={`flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'edit' ? 'bg-white dark:bg-gray-700 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'}`}
+                >
+                  <ImageIcon size={16} /> Edit
+                </button>
+              </div>
+            </div>
+
+            {/* Aspect Ratio Selector */}
+            {activeTab === 'generate' && (
+              <div>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Aspect Ratio</h2>
+                <div className="grid grid-cols-3 gap-2">
+                  {['1:1', '16:9', '9:16', '4:3', '3:4'].map((ratio) => (
+                    <button
+                      key={ratio}
+                      onClick={() => setAspectRatio(ratio)}
+                      className={`py-2 px-3 text-xs font-medium rounded-lg border transition-all
+                        ${aspectRatio === ratio 
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' 
+                          : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-blue-300'}
+                      `}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+
+            {/* Upload Area (Visible only in Edit Mode or as helper) */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Reference Image</h2>
+              {!uploadedImage ? (
+                <label className={`
+                  flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed cursor-pointer transition-all
+                  ${darkMode ? 'border-gray-700 hover:border-gray-500 hover:bg-gray-800' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'}
+                `}>
+                  <Upload size={24} className="text-gray-400 mb-2" />
+                  <span className="text-xs text-gray-500">Upload to Edit</span>
+                  <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                </label>
+              ) : (
+                <div className="relative group rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+                  <img src={uploadedImage} alt="Upload" className="w-full h-40 object-cover" />
+                  <button 
+                    onClick={clearUpload}
+                    className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full hover:bg-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <X size={14} />
+                  </button>
+                  <div className="absolute bottom-0 w-full bg-black/60 p-2">
+                    <p className="text-xs text-white font-medium text-center">Ready to Edit</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto">
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/30 border border-gray-100 dark:border-gray-800">
+                <h3 className="text-sm font-semibold mb-1">Pro Tip</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {activeTab === 'generate' 
+                    ? "Try adding words like 'cinematic lighting', 'hyperrealistic', or 'studio quality' for better results."
+                    : "Upload a sketch or photo and describe how you want to transform it."}
+                </p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Workspace */}
+        <main className="flex-1 flex flex-col relative overflow-hidden">
+          
+          {/* Canvas Area */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col items-center justify-center">
+            
+            {!generatedImage && !isLoading ? (
+              <div className="text-center max-w-lg animate-fade-in">
+                <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`}>
+                   <Sparkles className="text-blue-500" size={40} />
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+                  Create with Digi AI
+                </h1>
+                <p className={`text-lg mb-8 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Powered by Dream It Get It Technology. <br/>
+                  Generate ultra-realistic images or edit your own with professional precision.
+                </p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {[
+                    "Cyberpunk city street at night",
+                    "Minimalist logo for a coffee shop",
+                    "Portrait of a futuristic astronaut"
+                  ].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => setPrompt(suggestion)}
+                      className={`px-4 py-2 text-sm rounded-full border transition-all
+                        ${darkMode 
+                          ? 'border-gray-700 hover:border-gray-500 hover:bg-gray-800 text-gray-300' 
+                          : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-600'}
+                      `}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="relative w-full max-w-4xl h-full flex flex-col items-center justify-center">
+                {isLoading ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="relative w-24 h-24">
+                      <div className="absolute inset-0 rounded-full border-4 border-gray-200 dark:border-gray-800"></div>
+                      <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
+                      <Sparkles className="absolute inset-0 m-auto text-blue-500 animate-pulse" size={24} />
+                    </div>
+                    <p className="text-sm font-medium text-gray-500 animate-pulse">
+                      {activeTab === 'edit' ? 'Refining your image...' : 'Dreaming up your masterpiece...'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative group w-full h-full flex items-center justify-center">
+                    <div className="relative max-h-full rounded-lg overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-700">
+                       <img 
+                        src={generatedImage || undefined} // Provide undefined if null
+                        alt="Generated content" 
+                        className="max-h-[70vh] w-auto object-contain rounded-lg"
+                      />
+                      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button 
+                          onClick={downloadImage}
+                          className="p-2 bg-black/60 text-white backdrop-blur-md rounded-lg hover:bg-blue-600 transition-colors"
+                          title="Download"
+                        >
+                          <Download size={20} />
+                        </button>
+                        <button 
+                          className="p-2 bg-black/60 text-white backdrop-blur-md rounded-lg hover:bg-blue-600 transition-colors"
+                          title="Share"
+                        >
+                          <Share2 size={20} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {error && (
+              <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800 text-sm flex items-center gap-2">
+                <X size={16} /> {error}
+              </div>
+            )}
+          </div>
+
+          {/* Input Area */}
+          <div className={`p-4 md:p-6 border-t ${darkMode ? 'border-gray-800 bg-[#0f1014]' : 'border-gray-200 bg-white'}`}>
+            <div className="max-w-4xl mx-auto relative">
+              <div className={`
+                flex items-center gap-2 p-2 rounded-2xl border-2 transition-all focus-within:ring-2 focus-within:ring-blue-500/50
+                ${darkMode ? 'bg-[#1a1b20] border-gray-700 focus-within:border-blue-500' : 'bg-gray-50 border-gray-200 focus-within:border-blue-500'}
+              `}>
+                <div className="pl-3">
+                  {activeTab === 'edit' ? <ImageIcon className="text-blue-500" size={24}/> : <Sparkles className="text-blue-500" size={24}/>}
+                </div>
+                <input
+                  type="text"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAction()}
+                  placeholder={
+                    activeTab === 'edit' 
+                      ? "Describe how you want to change the image (e.g., 'Make it sunset', 'Add a hat')..." 
+                      : "Describe what you want to see (e.g., 'A futuristic car in Tokyo')..."
+                  }
+                  className="flex-1 bg-transparent border-none outline-none px-2 py-3 text-base"
+                />
+                <button
+                  onClick={handleAction}
+                  disabled={isLoading || !prompt || (activeTab === 'edit' && !uploadedImage)}
+                  className={`
+                    p-3 rounded-xl font-medium transition-all flex items-center gap-2
+                    ${isLoading || !prompt || (activeTab === 'edit' && !uploadedImage) 
+                      ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}
+                  `}
+                >
+                  {isLoading ? 'Processing' : 'Generate'}
+                  {!isLoading && <Wand2 size={18} />}
+                </button>
+              </div>
+              <div className="mt-2 text-center">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest">
+                  Digi AI Studio • Dream It Get It
+                </p>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      {/* Floating Chat Button */}
+      <button 
+        onClick={toggleChat}
+        className={`fixed bottom-6 right-6 z-50 p-4 rounded-full transition-all duration-300 shadow-xl 
+          ${isChatOpen ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}
+          text-white
+        `}
+        title={isChatOpen ? "Close Assistant" : "Open Digi AI Assistant"}
+      >
+        {isChatOpen ? <X size={24} /> : <MessageSquare size={24} />}
+      </button>
+
+      {/* Chat Assistant Panel */}
+      <div className={`fixed top-16 right-0 h-[calc(100vh-64px)] w-full md:w-[400px] z-50 transform transition-transform duration-300 ease-in-out shadow-2xl 
+        ${isChatOpen ? 'translate-x-0' : 'translate-x-full'}
+        ${darkMode ? 'bg-[#1a1b20] border-l border-gray-800 text-gray-100' : 'bg-white border-l border-gray-200 text-gray-900'}
+      `}>
+        <div className={`p-4 border-b flex items-center justify-between ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <MessageSquare className="text-blue-500" size={20} /> Digi AI Assistant
+          </h3>
+          <button onClick={toggleChat} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Chat History */}
+        <div ref={chatScrollRef} className="p-4 space-y-4 overflow-y-auto h-[calc(100%-120px)]">
+          {chatHistory.length === 0 && (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <Sparkles size={32} className="mx-auto mb-2 text-blue-500" />
+              <p>How can I assist you today? I'm here to help solve your problems in a professional and helpful manner.</p>
+            </div>
+          )}
+          {chatHistory.map((message, index) => (
+            <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] p-3 rounded-xl shadow-md ${
+                message.role === 'user' 
+                  ? 'bg-blue-600 text-white rounded-br-none' 
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-tl-none'
+              }`}>
+                <p className="whitespace-pre-wrap text-sm">{message.text}</p>
+              </div>
+            </div>
+          ))}
+
+          {isChatLoading && (
+            <div className="flex justify-start">
+              <div className={`max-w-[85%] p-3 rounded-xl shadow-md bg-gray-100 dark:bg-gray-800 rounded-tl-none`}>
+                <div className="animate-pulse flex space-x-2 items-center">
+                  <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                  <div className="h-2 w-2 rounded-full bg-blue-500 opacity-75"></div>
+                  <div className="h-2 w-2 rounded-full bg-blue-500 opacity-50"></div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Chat Input */}
+        <form onSubmit={handleChatSubmit} className={`absolute bottom-0 w-full p-4 border-t ${darkMode ? 'border-gray-800 bg-[#1a1b20]' : 'border-gray-200 bg-white'}`}>
+          <div className={`flex items-center p-1 rounded-xl border transition-all focus-within:ring-2 focus-within:ring-blue-500/50 ${darkMode ? 'border-gray-700 bg-[#0f1014]' : 'border-gray-300 bg-white'}`}>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask me anything..."
+              disabled={isChatLoading}
+              className="flex-1 bg-transparent border-none outline-none px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={isChatLoading || !chatInput.trim()}
+              className={`p-2 rounded-lg transition-all 
+                ${isChatLoading || !chatInput.trim() 
+                  ? 'bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500 cursor-not-allowed' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/30'}
+              `}
+              title="Send Message"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
